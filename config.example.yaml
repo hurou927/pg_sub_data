@@ -1,0 +1,31 @@
+# === analyze / extract 共通 ===
+
+connection:
+  host: "localhost"
+  port: 5432
+  database: "myapp"
+  user: "postgres"
+  password: "secret"
+  sslmode: "disable"
+
+# Schemas to introspect (default: ["public"])
+schemas:
+  - "public"
+
+# === extract 用（analyze 時は不要）===
+
+# Root tables with WHERE conditions for subset selection.
+# Run `analyze` first to identify root tables, then fill in this section.
+roots:
+  - table: "tenants"
+    where: "id IN (1, 2, 3)"
+  - table: "countries"
+    where: "code IN ('US', 'JP')"
+
+# Tables to exclude from extraction
+exclude_tables:
+  - "audit_logs"
+  - "migration_history"
+
+# Output file path (can be overridden with --output flag)
+output: "subset.sql"

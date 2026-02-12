@@ -1,0 +1,82 @@
+[env]
+BINARY_NAME = "db-sub-data"
+CONFIG_FILE = "config.yaml"
+
+# ============================================================
+# Build
+# ============================================================
+
+[tasks.build]
+description = "Build the binary"
+command = "go"
+args = ["build", "-o", "${BINARY_NAME}", "."]
+
+[tasks.build-release]
+description = "Build with optimizations (strip debug info)"
+command = "go"
+args = ["build", "-ldflags", "-s -w", "-o", "${BINARY_NAME}", "."]
+
+# ============================================================
+# Run (.env を読み込んで go run で実行)
+# ============================================================
+
+[tasks.analyze]
+description = "Run analyze subcommand (mermaid)"
+script = "godotenv -f .env -- go run . analyze --config ${CONFIG_FILE}"
+
+[tasks.analyze-text]
+description = "Run analyze subcommand (text)"
+script = "godotenv -f .env -- go run . analyze --config ${CONFIG_FILE} --format text"
+
+[tasks.extract]
+description = "Run extract subcommand"
+script = "godotenv -f .env -- go run . extract --config ${CONFIG_FILE}"
+
+[tasks.extract-dry]
+description = "Run extract with --dry-run"
+script = "godotenv -f .env -- go run . extract --config ${CONFIG_FILE} --dry-run --verbose"
+
+# ============================================================
+# Dev
+# ============================================================
+
+[tasks.vet]
+description = "Run go vet"
+command = "go"
+args = ["vet", "./..."]
+
+[tasks.fmt]
+description = "Run gofmt"
+command = "gofmt"
+args = ["-w", "."]
+
+[tasks.fmt-check]
+description = "Check formatting"
+script = '''
+diff=$(gofmt -l .)
+if [ -n "$diff" ]; then
+  echo "Unformatted files:"
+  echo "$diff"
+  exit 1
+fi
+'''
+
+[tasks.lint]
+description = "Run vet + fmt check"
+dependencies = ["vet", "fmt-check"]
+
+[tasks.test]
+description = "Run tests"
+command = "go"
+args = ["test", "-v", "./..."]
+
+[tasks.clean]
+description = "Remove build artifacts"
+script = "rm -f ${BINARY_NAME}"
+
+# ============================================================
+# Default
+# ============================================================
+
+[tasks.default]
+alias = "build"
