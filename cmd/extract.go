@@ -41,7 +41,7 @@ var extractCmd = &cobra.Command{
 			return fmt.Errorf("introspecting schema: %w", err)
 		}
 
-		g := graph.Build(tables, cfg.ExcludeSet())
+		g := graph.Build(tables, cfg.ExcludeSet(), cfg.VirtualRelations)
 
 		// Validate that all root tables exist in the graph
 		for _, root := range cfg.Roots {

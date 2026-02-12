@@ -1,6 +1,9 @@
 package graph
 
 import (
+	"fmt"
+
+	"github.com/hurou927/db-sub-data/internal/config"
 	"github.com/hurou927/db-sub-data/internal/schema"
 )
 
@@ -34,8 +37,8 @@ type Graph struct {
 
 // Build constructs a directed graph from introspected tables.
 // Tables in excludeSet are skipped. FKs referencing tables outside
-// the known set are ignored.
-func Build(tables map[string]*schema.Table, excludeSet map[string]bool) *Graph {
+// the known set are ignored. virtualRelations are injected as additional FK edges.
+func Build(tables map[string]*schema.Table, excludeSet map[string]bool, virtualRelations []config.VirtualRelation) *Graph {
 	g := &Graph{
 		Tables:    make(map[string]*schema.Table),
 		SelfRefs:  make(map[string][]schema.ForeignKey),
@@ -51,6 +54,30 @@ func Build(tables map[string]*schema.Table, excludeSet map[string]bool) *Graph {
 		}
 		g.Tables[name] = tbl
 		g.Adjacency[name] = make(map[string]bool)
+	}
+
+	// Inject virtual relations as ForeignKey entries on child tables
+	for _, vr := range virtualRelations {
+		childKey := findTableKey(g.Tables, vr.ChildTable)
+		parentKey := findTableKey(g.Tables, vr.ParentTable)
+		if childKey == "" || parentKey == "" {
+			continue
+		}
+		child := g.Tables[childKey]
+		parent := g.Tables[parentKey]
+		fk := schema.ForeignKey{
+			Name:          fmt.Sprintf("virtual_%s_%s_%s", child.Name, vr.ChildColumn, parent.Name),
+			ChildSchema:   child.Schema,
+			ChildTable:    child.Name,
+			ChildColumns:  []string{vr.ChildColumn},
+			ParentSchema:  parent.Schema,
+			ParentTable:   parent.Name,
+			ParentColumns: []string{vr.ParentColumn},
+			IsSelfRef:     childKey == parentKey,
+			Virtual:       schema.VirtualType(vr.Type),
+			JSONPath:      vr.JSONPath,
+		}
+		child.ForeignKeys = append(child.ForeignKeys, fk)
 	}
 
 	// Build edges
@@ -80,6 +107,21 @@ func Build(tables map[string]*schema.Table, excludeSet map[string]bool) *Graph {
 	}
 
 	return g
+}
+
+// findTableKey finds the full "schema.table" key by unqualified table name.
+func findTableKey(tables map[string]*schema.Table, name string) string {
+	// Try as-is first (already qualified)
+	if _, ok := tables[name]; ok {
+		return name
+	}
+	// Search by unqualified name
+	for key, tbl := range tables {
+		if tbl.Name == name {
+			return key
+		}
+	}
+	return ""
 }
 
 // Roots returns tables that have no outgoing FK edges (no parents).

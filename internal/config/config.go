@@ -10,11 +10,22 @@ import (
 
 // Config represents the top-level YAML configuration.
 type Config struct {
-	Connection    Connection  `yaml:"connection"`
-	Roots         []Root      `yaml:"roots"`
-	ExcludeTables []string    `yaml:"exclude_tables"`
-	Schemas       []string    `yaml:"schemas"`
-	Output        string      `yaml:"output"`
+	Connection       Connection        `yaml:"connection"`
+	Roots            []Root            `yaml:"roots"`
+	ExcludeTables    []string          `yaml:"exclude_tables"`
+	Schemas          []string          `yaml:"schemas"`
+	Output           string            `yaml:"output"`
+	VirtualRelations []VirtualRelation `yaml:"virtual_relations"`
+}
+
+// VirtualRelation defines a logical FK relationship not backed by a DB constraint.
+type VirtualRelation struct {
+	ChildTable   string `yaml:"child_table"`
+	ChildColumn  string `yaml:"child_column"`
+	Type         string `yaml:"type"`      // "array" or "json"
+	JSONPath     string `yaml:"json_path"` // JSON key (required when type=json)
+	ParentTable  string `yaml:"parent_table"`
+	ParentColumn string `yaml:"parent_column"`
 }
 
 // Connection holds database connection parameters.
@@ -122,6 +133,28 @@ func (c *Config) validate() error {
 	}
 	if len(c.Schemas) == 0 {
 		c.Schemas = []string{"public"}
+	}
+	for i, vr := range c.VirtualRelations {
+		if vr.ChildTable == "" {
+			return fmt.Errorf("virtual_relations[%d].child_table is required", i)
+		}
+		if vr.ChildColumn == "" {
+			return fmt.Errorf("virtual_relations[%d].child_column is required", i)
+		}
+		if vr.ParentTable == "" {
+			return fmt.Errorf("virtual_relations[%d].parent_table is required", i)
+		}
+		if vr.ParentColumn == "" {
+			return fmt.Errorf("virtual_relations[%d].parent_column is required", i)
+		}
+		switch vr.Type {
+		case "array", "json":
+		default:
+			return fmt.Errorf("virtual_relations[%d].type must be \"array\" or \"json\"", i)
+		}
+		if vr.Type == "json" && vr.JSONPath == "" {
+			return fmt.Errorf("virtual_relations[%d].json_path is required when type=json", i)
+		}
 	}
 	return nil
 }

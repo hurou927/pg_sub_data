@@ -36,18 +36,29 @@ func buildChildQuery(table *schema.Table, g fkGraph, parentPKs map[string][][]an
 		// Check if this FK is nullable
 		nullable := isFKNullable(table, fk)
 
-		if len(fk.ChildColumns) == 1 {
-			// Single column FK: col IN ($1, $2, ...)
-			cond, newArgs, nextIdx := buildSingleColumnIN(fk, pks, nullable, argIdx)
+		switch fk.Virtual {
+		case schema.VirtualArray:
+			cond, newArgs, nextIdx := buildArrayOverlap(fk, pks, argIdx)
 			conditions = append(conditions, cond)
 			args = append(args, newArgs...)
 			argIdx = nextIdx
-		} else {
-			// Composite FK: (col1, col2) IN (($1,$2), ($3,$4), ...)
-			cond, newArgs, nextIdx := buildCompositeIN(fk, pks, nullable, argIdx)
+		case schema.VirtualJSON:
+			cond, newArgs, nextIdx := buildJSONIN(fk, pks, nullable, argIdx)
 			conditions = append(conditions, cond)
 			args = append(args, newArgs...)
 			argIdx = nextIdx
+		default:
+			if len(fk.ChildColumns) == 1 {
+				cond, newArgs, nextIdx := buildSingleColumnIN(fk, pks, nullable, argIdx)
+				conditions = append(conditions, cond)
+				args = append(args, newArgs...)
+				argIdx = nextIdx
+			} else {
+				cond, newArgs, nextIdx := buildCompositeIN(fk, pks, nullable, argIdx)
+				conditions = append(conditions, cond)
+				args = append(args, newArgs...)
+				argIdx = nextIdx
+			}
 		}
 	}
 
@@ -172,6 +183,53 @@ SELECT DISTINCT * FROM tree`,
 		table.FullName(), strings.Join(joinConds, " AND "))
 
 	return q, args
+}
+
+// buildArrayOverlap generates: child.array_col && ARRAY[$1,$2,...]
+// Uses the overlap operator to find rows where the array contains any of the parent PKs.
+func buildArrayOverlap(fk schema.ForeignKey, pks [][]any, argIdx int) (string, []any, int) {
+	col := fk.ChildColumns[0]
+
+	if len(pks) > 10000 {
+		pks = pks[:10000]
+	}
+
+	placeholders := make([]string, len(pks))
+	args := make([]any, len(pks))
+	for i, pk := range pks {
+		placeholders[i] = fmt.Sprintf("$%d", argIdx)
+		args[i] = pk[0]
+		argIdx++
+	}
+
+	cond := fmt.Sprintf("%s && ARRAY[%s]", col, strings.Join(placeholders, ", "))
+	return cond, args, argIdx
+}
+
+// buildJSONIN generates: (child.json_col->>'key')::text IN ($1,$2,...)
+// Extracts a value from JSONB via ->> and compares as text.
+func buildJSONIN(fk schema.ForeignKey, pks [][]any, nullable bool, argIdx int) (string, []any, int) {
+	col := fk.ChildColumns[0]
+	jsonPath := fk.JSONPath
+
+	if len(pks) > 10000 {
+		pks = pks[:10000]
+	}
+
+	placeholders := make([]string, len(pks))
+	args := make([]any, len(pks))
+	for i, pk := range pks {
+		placeholders[i] = fmt.Sprintf("$%d", argIdx)
+		args[i] = fmt.Sprintf("%v", pk[0]) // compare as text
+		argIdx++
+	}
+
+	expr := fmt.Sprintf("(%s->>'%s')", col, jsonPath)
+	cond := fmt.Sprintf("%s IN (%s)", expr, strings.Join(placeholders, ", "))
+	if nullable {
+		cond = fmt.Sprintf("(%s OR %s IS NULL)", cond, expr)
+	}
+	return cond, args, argIdx
 }
 
 func isFKNullable(table *schema.Table, fk schema.ForeignKey) bool {

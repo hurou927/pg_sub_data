@@ -1,5 +1,26 @@
-# === analyze / extract 共通 ===
+# =============================================================================
+# db-sub-data 設定ファイル
+# =============================================================================
+#
+# ワークフロー:
+#   1. connection + schemas だけ書いて `db-sub-data analyze` でグラフを確認
+#   2. 結果を見て roots / exclude_tables / virtual_relations を決定
+#   3. `db-sub-data extract` でサブセット抽出
+#
+# 接続情報は環境変数でも指定可能（YAML が優先、未指定のフィールドだけフォールバック）:
+#   PGHOST / POSTGRES_HOST, PGPORT / POSTGRES_PORT,
+#   PGDATABASE / POSTGRES_DB, PGUSER / POSTGRES_USER,
+#   PGPASSWORD / POSTGRES_PASSWORD, PGSSLMODE
+#
+# =============================================================================
 
+# ---------------------------------------------------------------------------
+# connection: DB 接続情報（環境変数で代替可）
+# ---------------------------------------------------------------------------
+# 全フィールド省略可。省略時は環境変数 → デフォルト値 の順で解決される。
+#   host:     default "localhost"
+#   port:     default 5432
+#   sslmode:  default "disable"
 connection:
   host: "localhost"
   port: 5432
@@ -8,24 +29,104 @@ connection:
   password: "secret"
   sslmode: "disable"
 
-# Schemas to introspect (default: ["public"])
+# ---------------------------------------------------------------------------
+# schemas: イントロスペクト対象のスキーマ (default: ["public"])
+# ---------------------------------------------------------------------------
 schemas:
   - "public"
 
-# === extract 用（analyze 時は不要）===
+# =============================================================================
+# ここから下は extract 用（analyze 時は不要）
+# =============================================================================
 
-# Root tables with WHERE conditions for subset selection.
-# Run `analyze` first to identify root tables, then fill in this section.
+# ---------------------------------------------------------------------------
+# roots: 抽出の起点テーブルと WHERE 条件
+# ---------------------------------------------------------------------------
+# analyze --format text で「Root tables (no FK parents)」に表示されるテーブルが候補。
+# 各連結成分に少なくとも1つルートを指定すると、そこから FK を辿って子テーブルが抽出される。
+#
+# フォーマット:
+#   - table: "<テーブル名>"        # スキーマなしの名前 (e.g. "tenants")
+#     where: "<SQL WHERE 条件>"    # 省略可。省略時はテーブル全行
+#
+# where の例:
+#   - "id = 1"
+#   - "id IN (1, 2, 3)"
+#   - "created_at >= '2024-01-01'"
+#   - "name LIKE 'test%'"
 roots:
   - table: "tenants"
     where: "id IN (1, 2, 3)"
   - table: "countries"
     where: "code IN ('US', 'JP')"
 
-# Tables to exclude from extraction
+# ---------------------------------------------------------------------------
+# exclude_tables: 抽出から除外するテーブル
+# ---------------------------------------------------------------------------
+# 大量データのログ系テーブルやマイグレーション履歴など、不要なテーブルを除外。
+# analyze では無視され、extract 時のみ適用される。
+# スキーマなしのテーブル名で指定。
 exclude_tables:
   - "audit_logs"
   - "migration_history"
 
-# Output file path (can be overridden with --output flag)
+# ---------------------------------------------------------------------------
+# virtual_relations: DB 制約のない論理 FK
+# ---------------------------------------------------------------------------
+# PostgreSQL の FK 制約は無いが、実質的に参照関係があるカラムを定義する。
+# analyze のグラフにもエッジとして表示される。
+#
+# 対応タイプ:
+#
+# --- type: "array" ---
+# PostgreSQL 配列カラム (int[], text[] など) に親テーブルの PK が格納されているケース。
+# 生成 SQL: WHERE child.array_col && ARRAY[<親PKs>]  (overlap 演算子)
+#
+#   テーブル例:
+#     CREATE TABLE tags (id int PRIMARY KEY, name text);
+#     CREATE TABLE orders (id int PRIMARY KEY, tag_ids int[]);
+#     -- orders.tag_ids = ARRAY[1, 3, 5]  (tags.id への参照)
+#
+#   設定:
+#     - child_table: "orders"
+#       child_column: "tag_ids"       # 配列カラム名
+#       type: "array"
+#       parent_table: "tags"
+#       parent_column: "id"           # 配列の要素が参照する親カラム
+#
+# --- type: "json" ---
+# JSONB カラム内のキーに親テーブルの PK が格納されているケース。
+# 生成 SQL: WHERE (child.json_col->>'key') IN (<親PKs>)
+#
+#   テーブル例:
+#     CREATE TABLE categories (id int PRIMARY KEY, name text);
+#     CREATE TABLE orders (id int PRIMARY KEY, metadata jsonb);
+#     -- orders.metadata = '{"category_id": 5, "note": "..."}'
+#
+#   設定:
+#     - child_table: "orders"
+#       child_column: "metadata"      # JSONB カラム名
+#       type: "json"
+#       json_path: "category_id"      # ->> で取り出す JSON キー (必須)
+#       parent_table: "categories"
+#       parent_column: "id"
+#
+virtual_relations:
+  - child_table: "orders"
+    child_column: "tag_ids"
+    type: "array"
+    parent_table: "tags"
+    parent_column: "id"
+
+  - child_table: "orders"
+    child_column: "metadata"
+    type: "json"
+    json_path: "category_id"
+    parent_table: "categories"
+    parent_column: "id"
+
+# ---------------------------------------------------------------------------
+# output: 出力ファイルパス
+# ---------------------------------------------------------------------------
+# --output フラグで上書き可。"-" で標準出力。
 output: "subset.sql"

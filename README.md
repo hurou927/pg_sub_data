@@ -83,6 +83,7 @@ schemas:
 | `roots` | extract 時 | 抽出起点となるテーブルと WHERE 条件 |
 | `exclude_tables` | - | 抽出から除外するテーブル |
 | `output` | - | 出力ファイルパス（`--output` で上書き可） |
+| `virtual_relations` | - | DB 制約のない論理 FK（array / json） |
 
 ## 使い方
 
@@ -201,3 +202,5 @@ makers clean          # 成果物削除
 | 循環参照 | `session_replication_role = 'replica'` で FK 制約を無効化 |
 | 複合 FK | `(col1, col2) IN ((v1,v2), ...)` |
 | 大量 PK 値 (>10,000) | 値セットの上限キャップ |
+| Array カラムによる仮想 FK | `array_col && ARRAY[...]`（overlap 演算子） |
+| JSONB カラムによる仮想 FK | `(json_col->>'key') IN (...)` |

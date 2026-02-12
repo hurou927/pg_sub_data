@@ -32,7 +32,7 @@ var analyzeCmd = &cobra.Command{
 			return fmt.Errorf("introspecting schema: %w", err)
 		}
 
-		g := graph.Build(tables, nil)
+		g := graph.Build(tables, nil, cfg.VirtualRelations)
 
 		switch analyzeFormat {
 		case "mermaid":

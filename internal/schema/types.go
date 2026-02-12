@@ -13,7 +13,16 @@ type PrimaryKey struct {
 	Columns []string
 }
 
-// ForeignKey represents a foreign key constraint.
+// VirtualType indicates how a virtual FK column stores references.
+type VirtualType string
+
+const (
+	VirtualNone  VirtualType = ""      // real FK constraint
+	VirtualArray VirtualType = "array" // PostgreSQL array column (e.g. int[])
+	VirtualJSON  VirtualType = "json"  // JSONB field (e.g. metadata->>'key')
+)
+
+// ForeignKey represents a foreign key constraint (real or virtual).
 type ForeignKey struct {
 	Name           string
 	ChildSchema    string
@@ -23,6 +32,8 @@ type ForeignKey struct {
 	ParentTable    string
 	ParentColumns  []string
 	IsSelfRef      bool
+	Virtual        VirtualType // "" for real FK, "array" or "json" for virtual
+	JSONPath       string      // JSON key to extract (only when Virtual == "json")
 }
 
 // Table represents a database table with its columns, PK, and FKs.
